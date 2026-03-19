@@ -1,0 +1,201 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Dinic 反悔机制与残量网络</title>
+<style>
+  :root { --bg: #0f172a; --panel: #1e293b; --blue: #3b82f6; --green: #10b981; --purple: #d946ef; --gray: #475569; --red: #ef4444; }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: #fff; display: flex; justify-content: center; padding: 30px; }
+  .app { background: var(--panel); padding: 30px; border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.6); width: 850px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; border-bottom: 1px solid var(--gray); padding-bottom: 15px; }
+  .log { background: #000; padding: 15px; border-radius: 8px; color: #fbbf24; font-family: monospace; border-left: 5px solid var(--blue); min-height: 80px; font-size: 15px; line-height: 1.6; }
+  
+  svg { background: #020617; border-radius: 12px; margin-top: 20px; width: 100%; border: 1px solid #334155; }
+  
+  /* 正向边：正常状态 */
+  .edge-f { stroke: var(--blue); stroke-width: 4; fill: none; transition: 0.5s; }
+  /* 正向边：满载（被从残量网络删除） */
+  .edge-f.full { stroke: var(--gray); stroke-width: 2; stroke-dasharray: 5,5; opacity: 0.5; }
+  
+  /* 反向边：初始无容量时隐藏 */
+  .edge-r { stroke: var(--purple); stroke-width: 3; fill: none; opacity: 0; transition: 0.5s; stroke-dasharray: 4,4;}
+  /* 反向边：有容量时显现 */
+  .edge-r.active { opacity: 1; stroke-dasharray: none; stroke-width: 4; }
+  
+  .node { fill: #1e293b; stroke: #fff; stroke-width: 3; }
+  .node.S { stroke: var(--green); } .node.T { stroke: var(--red); }
+  .node-txt { fill: #fff; font-weight: bold; font-size: 16px; text-anchor: middle; dominant-baseline: central; pointer-events: none;}
+  
+  .cap-bg { fill: #000; opacity: 0.7; rx: 4; ry: 4; transition: 0.3s;}
+  .cap-txt { fill: #fff; font-size: 12px; font-weight: bold; text-anchor: middle; dominant-baseline: central; transition: 0.3s;}
+  .cap-txt.rev { fill: var(--purple); }
+  .level-tag { fill: #fbbf24; font-size: 14px; font-weight: bold; }
+  
+  .btn { background: var(--blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 20px; transition: 0.2s; }
+  .btn:hover:not(:disabled) { background: #2563eb; }
+  .btn:disabled { background: var(--gray); cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div>
+      <h2 style="margin:0 0 5px 0">Dinic 反悔机制 (残量网络演示)</h2>
+      <div style="color:#94a3b8; font-size:14px;">蓝实线: 可用正向边 | <span style="color:var(--gray)">灰虚线: 已满载删除</span> | <span style="color:var(--purple)">紫实线: 激活的反向边</span></div>
+    </div>
+    <div style="font-size: 24px; font-weight: bold; color: var(--green)">Flow: <span id="flow">0</span></div>
+  </div>
+
+  <div class="log" id="log">准备就绪。<br>这个图里有一个巨大的陷阱，贪心算法一定会选错。点击 [下一步] 看 Dinic 如何破局！</div>
+
+  <svg viewBox="0 0 800 400">
+    <defs>
+      <marker id="af" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#3b82f6"/></marker>
+      <marker id="af-full" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#475569"/></marker>
+      <marker id="ar" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#d946ef"/></marker>
+    </defs>
+
+    <!-- Edges S->A -->
+    <path id="f_S_A" class="edge-f" d="M 100,200 Q 175,125 250,100" marker-end="url(#af)"/>
+    <path id="r_A_S" class="edge-r" d="M 250,100 Q 175,175 100,200" marker-end="url(#ar)"/>
+    <rect x="155" y="135" width="40" height="20" class="cap-bg"/><text id="t_S_A" x="175" y="145" class="cap-txt">0/10</text>
+    <!-- 添加了正确的 ID -->
+    <rect id="br_A_S" x="155" y="160" width="40" height="20" class="cap-bg" style="opacity:0"/><text id="tr_A_S" x="175" y="170" class="cap-txt rev"></text>
+
+    <!-- Edges S->B -->
+    <path id="f_S_B" class="edge-f" d="M 100,200 Q 175,275 250,300" marker-end="url(#af)"/>
+    <path id="r_B_S" class="edge-r" d="M 250,300 Q 175,225 100,200" marker-end="url(#ar)"/>
+    <rect x="155" y="245" width="40" height="20" class="cap-bg"/><text id="t_S_B" x="175" y="255" class="cap-txt">0/10</text>
+    <!-- 添加了正确的 ID -->
+    <rect id="br_B_S" x="155" y="270" width="40" height="20" class="cap-bg" style="opacity:0"/><text id="tr_B_S" x="175" y="280" class="cap-txt rev"></text>
+    
+    <!-- Edges A->C (The Trap) -->
+    <path id="f_A_C" class="edge-f" d="M 250,100 Q 350,150 450,300" marker-end="url(#af)"/>
+    <path id="r_C_A" class="edge-r" d="M 450,300 Q 350,250 250,100" marker-end="url(#ar)"/>
+    <rect x="330" y="170" width="40" height="20" class="cap-bg"/><text id="t_A_C" x="350" y="180" class="cap-txt">0/10</text>
+    <!-- 添加了正确的 ID -->
+    <rect id="br_C_A" x="370" y="190" width="40" height="20" class="cap-bg" style="opacity:0"/><text id="tr_C_A" x="390" y="200" class="cap-txt rev"></text>
+
+    <!-- Edges A->D -->
+    <path id="f_A_D" class="edge-f" d="M 250,100 L 450,100" marker-end="url(#af)"/>
+    <rect x="330" y="75" width="40" height="20" class="cap-bg"/><text id="t_A_D" x="350" y="85" class="cap-txt">0/10</text>
+
+    <!-- Edges B->C -->
+    <path id="f_B_C" class="edge-f" d="M 250,300 L 450,300" marker-end="url(#af)"/>
+    <rect x="330" y="305" width="40" height="20" class="cap-bg"/><text id="t_B_C" x="350" y="315" class="cap-txt">0/10</text>
+
+    <!-- Edges C->T -->
+    <path id="f_C_T" class="edge-f" d="M 450,300 Q 550,275 650,200" marker-end="url(#af)"/>
+    <path id="r_T_C" class="edge-r" d="M 650,200 Q 550,225 450,300" marker-end="url(#ar)"/>
+    <rect x="530" y="245" width="40" height="20" class="cap-bg"/><text id="t_C_T" x="550" y="255" class="cap-txt">0/10</text>
+    <!-- 添加了正确的 ID -->
+    <rect id="br_T_C" x="530" y="270" width="40" height="20" class="cap-bg" style="opacity:0"/><text id="tr_T_C" x="550" y="280" class="cap-txt rev"></text>
+
+    <!-- Edges D->T -->
+    <path id="f_D_T" class="edge-f" d="M 450,100 Q 550,125 650,200" marker-end="url(#af)"/>
+    <rect x="530" y="135" width="40" height="20" class="cap-bg"/><text id="t_D_T" x="550" y="145" class="cap-txt">0/10</text>
+
+    <!-- Nodes -->
+    <circle cx="100" cy="200" r="20" class="node S"/><text x="100" y="200" class="node-txt">S</text>
+    <circle cx="250" cy="100" r="20" class="node"/><text x="250" y="100" class="node-txt">A</text>
+    <circle cx="250" cy="300" r="20" class="node"/><text x="250" y="300" class="node-txt">B</text>
+    <circle cx="450" cy="100" r="20" class="node"/><text x="450" y="100" class="node-txt">D</text>
+    <circle cx="450" cy="300" r="20" class="node"/><text x="450" y="300" class="node-txt">C</text>
+    <circle cx="650" cy="200" r="20" class="node T"/><text x="650" y="200" class="node-txt">T</text>
+
+    <!-- Level Tags -->
+    <text id="lv_S" x="100" y="160" class="level-tag" text-anchor="middle"></text>
+    <text id="lv_A" x="250" y="60" class="level-tag" text-anchor="middle"></text>
+    <text id="lv_B" x="250" y="340" class="level-tag" text-anchor="middle"></text>
+    <text id="lv_D" x="450" y="60" class="level-tag" text-anchor="middle"></text>
+    <text id="lv_C" x="450" y="340" class="level-tag" text-anchor="middle"></text>
+    <text id="lv_T" x="650" y="160" class="level-tag" text-anchor="middle"></text>
+  </svg>
+
+  <div style="display: flex; gap: 15px;">
+    <button class="btn" id="nextBtn" onclick="nextStep()">下一步</button>
+    <button class="btn" style="background:var(--gray)" onclick="location.reload()">重新开始</button>
+  </div>
+</div>
+
+<script>
+  let step = 0;
+  
+  function updateEdge(f_id, r_id, flow, cap) {
+    let f = document.getElementById(f_id);
+    if (!f) return; // 安全检查
+
+    // 更新正向边
+    let t_id = 't' + f_id.substring(1); 
+    let t_el = document.getElementById(t_id);
+    if (t_el) t_el.textContent = flow + "/" + cap;
+
+    if (flow === cap) {
+      f.classList.add('full');
+      f.setAttribute('marker-end', 'url(#af-full)');
+    } else {
+      f.classList.remove('full');
+      f.setAttribute('marker-end', 'url(#af)');
+    }
+    
+    // 更新反向边
+    if (r_id) {
+      let r = document.getElementById(r_id);
+      // 修复 Bug：加入了 'r'，正确拼接 ID，例如 tr_A_S, br_A_S
+      let r_txt = document.getElementById('tr' + r_id.substring(1)); 
+      let r_bg = document.getElementById('br' + r_id.substring(1));
+
+      if (r) {
+        if (flow > 0) {
+          r.classList.add('active');
+          if (r_txt) r_txt.textContent = "Rev: " + flow;
+          if (r_bg) r_bg.style.opacity = 0.7;
+        } else {
+          // 如果流量被退回 0，反向边消失
+          r.classList.remove('active');
+          if (r_txt) r_txt.textContent = "";
+          if (r_bg) r_bg.style.opacity = 0;
+        }
+      }
+    }
+  }
+
+  function setLv(levels) {
+    ['S','A','B','C','D','T'].forEach(n => {
+        let el = document.getElementById('lv_'+n);
+        if(el) el.textContent = levels[n] !== undefined ? "L" + levels[n] : "";
+    });
+  }
+
+  function nextStep() {
+    let log = document.getElementById('log');
+    if (step === 0) {
+      setLv({S:0, A:1, B:1, C:2, D:2, T:3});
+      log.innerHTML = "<b>[第 1 轮 BFS]</b> 建立初始层级图。<br>水流只能从 L0 流向 L1，L1 流向 L2... 此时所有蓝线都畅通。";
+    } else if (step === 1) {
+      updateEdge('f_S_A', 'r_A_S', 10, 10);
+      updateEdge('f_A_C', 'r_C_A', 10, 10);
+      updateEdge('f_C_T', 'r_T_C', 10, 10);
+      document.getElementById('flow').textContent = "10";
+      log.innerHTML = "<b>[第 1 轮 DFS 贪心]</b> 找到路径 S → A → C → T，灌水 10。<br>灾难发生：<b>S→A, A→C, C→T 瞬间塞满，被移出残量网络（变灰）</b>。<br>同时，<b>反向边（紫色）获得了 10 的容量！</b> S→B 因为后续 C→T 堵死，无法继续灌水。";
+    } else if (step === 2) {
+      setLv({S:0, B:1, C:2, A:3, D:4, T:5});
+      log.innerHTML = "<b>[第 2 轮 BFS]</b> 重新探路。由于正向边被堵死，地形发生巨变！<br>注意看：水流可以走 S(L0) → B(L1) → C(L2)... <br><span style='color:var(--purple)'>然后顺着紫色的反向边 C → A (L2→L3) 逆流而上！</span>";
+    } else if (step === 3) {
+      updateEdge('f_S_B', 'r_B_S', 10, 10);
+      updateEdge('f_B_C', null, 10, 10);
+      // 反悔核心逻辑：A->C 正向边流量清零，重新变蓝可用！
+      updateEdge('f_A_C', 'r_C_A', 0, 10); 
+      updateEdge('f_A_D', null, 10, 10);
+      updateEdge('f_D_T', null, 10, 10);
+      document.getElementById('flow').textContent = "20";
+      log.innerHTML = "<b>[第 2 轮 DFS 反悔]</b> 沿 S→B→C <span style='color:var(--purple)'>→A(反向)</span> →D→T 灌水 10。<br><b>核心看点：</b>因为我们走了 C→A 反向边，导致 A→C 的正向流量从 10 被“逼退”回了 0！A→C 重新变回了蓝色可用状态！";
+    } else if (step === 4) {
+      log.innerHTML = "<b>[最大流达成]</b> 此时流量为 20。如果一开始不走 S→A→C 而是走 S→A→D，就不需要反向边。<br>但算法无法预知未来，<b>反向边就是给算法提供了犯错后修正全局的权利！</b>";
+      document.getElementById('nextBtn').disabled = true;
+    }
+    step++;
+  }
+</script>
+</body>
+</html>
