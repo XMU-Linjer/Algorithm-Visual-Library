@@ -1,0 +1,380 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>HLPP 最高标号预流推进 - 简洁版</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #1e293b;
+            --blue: #3b82f6;
+            --green: #10b981;
+            --purple: #a855f7;
+            --gray: #475569;
+            --red: #ef4444;
+            --amber: #f59e0b;
+        }
+
+        body {
+            font-family: system-ui, sans-serif;
+            background: var(--bg);
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .app {
+            background: var(--panel);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+            width: 850px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--gray);
+            padding-bottom: 10px;
+        }
+
+        .log {
+            background: #000;
+            padding: 12px;
+            border-radius: 8px;
+            color: #fbbf24;
+            font-family: monospace;
+            border-left: 5px solid var(--amber);
+            min-height: 80px;
+            font-size: 13px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+            height: 100px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        svg {
+            background: #020617;
+            border-radius: 12px;
+            width: 100%;
+            border: 1px solid #334155;
+        }
+
+        .edge {
+            stroke: var(--gray);
+            stroke-width: 2;
+            fill: none;
+            transition: 0.3s;
+        }
+
+        .edge.active {
+            stroke: var(--blue);
+            stroke-width: 3;
+        }
+
+        .edge.pushing {
+            stroke: var(--amber);
+            stroke-width: 5;
+            stroke-dasharray: 8, 4;
+            animation: flow 0.5s linear infinite;
+        }
+
+        @keyframes flow {
+            to {
+                stroke-dashoffset: -12;
+            }
+        }
+
+        .node {
+            fill: #1e293b;
+            stroke: #94a3b8;
+            stroke-width: 2;
+            transition: 0.5s;
+        }
+
+        .node.S {
+            stroke: var(--green);
+            stroke-width: 3;
+        }
+
+        .node.T {
+            stroke: var(--red);
+            stroke-width: 3;
+        }
+
+        .node.active-h {
+            stroke: var(--amber);
+            stroke-width: 4;
+            filter: drop-shadow(0 0 8px var(--amber));
+        }
+
+        .excess-bar {
+            fill: var(--blue);
+            opacity: 0.8;
+            transition: 0.5s;
+        }
+
+        .node-txt {
+            fill: #fff;
+            font-weight: bold;
+            font-size: 14px;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+        }
+
+        .h-tag {
+            fill: var(--amber);
+            font-size: 13px;
+            font-weight: bold;
+            transition: 0.5s;
+        }
+
+        .ex-tag {
+            fill: var(--blue);
+            font-size: 12px;
+            font-weight: bold;
+            transition: 0.5s;
+        }
+
+        .cap-txt {
+            fill: #94a3b8;
+            font-size: 11px;
+            font-family: monospace;
+            text-anchor: middle;
+        }
+
+        .btn {
+            background: var(--blue);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: #2563eb;
+        }
+
+        .btn:disabled {
+            background: var(--gray);
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <div class="header">
+            <div>
+                <h2 style="margin:0 0 5px 0">HLPP 简洁演示</h2>
+                <div style="color:#94a3b8; font-size:13px;">优化推流与高度跳跃逻辑</div>
+            </div>
+            <div style="text-align: right">
+                <div style="font-size: 12px; color: var(--gray)">MAX FLOW</div>
+                <div style="font-size: 24px; font-weight: bold; color: var(--green)" id="total-flow">0</div>
+            </div>
+        </div>
+
+        <div class="log" id="log">等待操作...</div>
+
+        <svg viewBox="0 0 800 360" id="svg-canvas">
+            <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="18" refY="5" markerWidth="4" markerHeight="4"
+                    orient="auto">
+                    <path d="M0 0 L10 5 L0 10 z" fill="context-stroke" />
+                </marker>
+            </defs>
+            <g id="edges-group"></g>
+            <g id="nodes-group"></g>
+        </svg>
+
+        <div style="display: flex; gap: 12px; margin-top: 15px;">
+            <button class="btn" id="nextBtn" onclick="nextStep()">下一步</button>
+            <button class="btn" id="autoBtn" style="background:var(--purple)" onclick="autoRun()">自动播放</button>
+            <button class="btn" style="background:var(--gray)" onclick="location.reload()">重置</button>
+        </div>
+    </div>
+
+    <script>
+        const nodes = {
+            'S': { x: 80, y: 180, h: 0, ex: 0, type: 'S' },
+            'A': { x: 250, y: 100, h: 0, ex: 0 },
+            'B': { x: 250, y: 260, h: 0, ex: 0 },
+            'C': { x: 450, y: 100, h: 0, ex: 0 },
+            'D': { x: 450, y: 260, h: 0, ex: 0 },
+            'T': { x: 650, y: 180, h: 0, ex: 0, type: 'T' }
+        };
+
+        let edges = [
+            { from: 'S', to: 'A', cap: 10, flow: 0 },
+            { from: 'S', to: 'B', cap: 10, flow: 0 },
+            { from: 'A', to: 'B', cap: 2, flow: 0 },
+            { from: 'A', to: 'C', cap: 6, flow: 0 },
+            { from: 'B', to: 'D', cap: 8, flow: 0 },
+            { from: 'C', to: 'T', cap: 7, flow: 0 },
+            { from: 'D', to: 'C', cap: 3, flow: 0 },
+            { from: 'D', to: 'T', cap: 10, flow: 0 }
+        ];
+
+        let phase = 'INIT';
+        let autoTimer = null;
+
+        function addLog(msg) {
+            const log = document.getElementById('log');
+            const div = document.createElement('div');
+            div.textContent = "> " + msg;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function render() {
+            const edgeG = document.getElementById('edges-group');
+            const nodeG = document.getElementById('nodes-group');
+            edgeG.innerHTML = ''; nodeG.innerHTML = '';
+
+            edges.forEach(e => {
+                const n1 = nodes[e.from], n2 = nodes[e.to];
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", `M ${n1.x},${n1.y} L ${n2.x},${n2.y}`);
+                path.setAttribute("class", `edge ${e.flow > 0 ? 'active' : ''} ${e.pushing ? 'pushing' : ''}`);
+                path.setAttribute("marker-end", "url(#arrow)");
+                edgeG.appendChild(path);
+
+                const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                txt.setAttribute("x", (n1.x + n2.x) / 2); txt.setAttribute("y", (n1.y + n2.y) / 2 - 8);
+                txt.setAttribute("class", "cap-txt");
+                txt.textContent = `${e.flow}/${e.cap}`;
+                edgeG.appendChild(txt);
+            });
+
+            Object.keys(nodes).forEach(key => {
+                const n = nodes[key];
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+                if (n.ex > 0 && n.type !== 'T' && n.type !== 'S') {
+                    const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    bar.setAttribute("x", n.x - 15); bar.setAttribute("y", n.y + 22);
+                    bar.setAttribute("width", Math.min(30, n.ex * 3)); bar.setAttribute("height", 6);
+                    bar.setAttribute("class", "excess-bar"); bar.setAttribute("rx", 2);
+                    g.appendChild(bar);
+                }
+
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", n.x); circle.setAttribute("cy", n.y); circle.setAttribute("r", 20);
+                circle.setAttribute("class", `node ${n.type || ''} ${n.active ? 'active-h' : ''}`);
+                g.appendChild(circle);
+
+                const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                t1.setAttribute("x", n.x); t1.setAttribute("y", n.y);
+                t1.setAttribute("class", "node-txt"); t1.textContent = key;
+                g.appendChild(t1);
+
+                const hTag = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                hTag.setAttribute("x", n.x); hTag.setAttribute("y", n.y - 30);
+                hTag.setAttribute("class", "h-tag"); hTag.setAttribute("text-anchor", "middle");
+                hTag.textContent = "H:" + n.h;
+                g.appendChild(hTag);
+
+                if (n.ex !== 0) {
+                    const exTag = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    exTag.setAttribute("x", n.x); exTag.setAttribute("y", n.y + 42);
+                    exTag.setAttribute("class", "ex-tag"); exTag.setAttribute("text-anchor", "middle");
+                    exTag.textContent = "Ex:" + n.ex;
+                    g.appendChild(exTag);
+                }
+                nodeG.appendChild(g);
+            });
+            document.getElementById('total-flow').textContent = nodes['T'].ex;
+        }
+
+        function nextStep() {
+            Object.values(nodes).forEach(n => n.active = false);
+            edges.forEach(e => e.pushing = false);
+
+            if (phase === 'INIT') {
+                nodes['A'].h = 2; nodes['B'].h = 2; nodes['C'].h = 1; nodes['D'].h = 1; nodes['T'].h = 0; nodes['S'].h = 6;
+                addLog("初始化：设置各点到汇点 T 的海拔距离。");
+                phase = 'START_PUSH';
+            }
+            else if (phase === 'START_PUSH') {
+                edges.filter(e => e.from === 'S').forEach(e => {
+                    const amt = e.cap; e.flow = amt;
+                    nodes[e.to].ex += amt; nodes['S'].ex -= amt;
+                    e.pushing = true;
+                });
+                addLog("启动：源点 S 注入全部流量。");
+                phase = 'HLPP';
+            }
+            else if (phase === 'HLPP') {
+                const activeKeys = Object.keys(nodes).filter(k => nodes[k].ex > 0 && nodes[k].type !== 'S' && nodes[k].type !== 'T');
+                if (activeKeys.length === 0) {
+                    addLog("完成：所有积水已平衡。最大流 = " + nodes['T'].ex);
+                    phase = 'DONE';
+                    document.getElementById('nextBtn').disabled = true;
+                    if (autoTimer) clearInterval(autoTimer);
+                    render(); return;
+                }
+
+                activeKeys.sort((a, b) => nodes[b].h - nodes[a].h);
+                const uKey = activeKeys[0]; const u = nodes[uKey];
+                u.active = true;
+
+                // 尝试推流
+                let pushed = false;
+                const candidates = [
+                    ...edges.filter(e => e.from === uKey && e.cap > e.flow).map(e => ({ e, target: e.to, type: 'f' })),
+                    ...edges.filter(e => e.to === uKey && e.flow > 0).map(e => ({ e, target: e.from, type: 'r' }))
+                ];
+
+                for (let item of candidates) {
+                    const v = nodes[item.target];
+                    if (u.h === v.h + 1) {
+                        const amt = item.type === 'f' ? Math.min(u.ex, item.e.cap - item.e.flow) : Math.min(u.ex, item.e.flow);
+                        if (item.type === 'f') item.e.flow += amt; else item.e.flow -= amt;
+                        u.ex -= amt; v.ex += amt; item.e.pushing = true;
+                        addLog(`${uKey} → ${item.target} 推流 ${amt}`);
+                        pushed = true; break;
+                    }
+                }
+
+                // 优化版 Relabel：直接跳到最低邻居+1
+                if (!pushed) {
+                    let minH = Infinity;
+                    candidates.forEach(item => {
+                        minH = Math.min(minH, nodes[item.target].h);
+                    });
+                    const oldH = u.h;
+                    u.h = (minH === Infinity) ? 7 : minH + 1;
+                    addLog(`${uKey} 海拔抬升: ${oldH} ➔ ${u.h}`);
+                }
+            }
+            render();
+        }
+
+        function autoRun() {
+            if (autoTimer) {
+                clearInterval(autoTimer); autoTimer = null;
+                document.getElementById('autoBtn').innerText = "自动播放";
+            } else {
+                document.getElementById('autoBtn').innerText = "暂停";
+                autoTimer = setInterval(nextStep, 200);
+            }
+        }
+
+        render();
+    </script>
+</body>
+
+</html>
